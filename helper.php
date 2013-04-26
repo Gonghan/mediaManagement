@@ -1,6 +1,7 @@
 <?php
-
-
+define ('SITE_ROOT',    realpath(dirname(__FILE__)));
+define ('BASE_FOLDER', basename(dirname(__FILE__)));
+define ('SITE_URL',    'http://'.$_SERVER['HTTP_HOST'].'/'.BASE_FOLDER);
 $link=pg_connect("host =localhost port=5432 user=postgres password=123456 dbname=mediaMetadata");
 
 
@@ -24,7 +25,8 @@ function showAllItems(){
    }
 }
 
-function showItemById($id){
+function showItemById($id,$details=true){
+   showImage($id);
    global $link;
    $sql="select * from metadata where id='".$id."'";
    $result=pg_query($link,$sql);
@@ -35,26 +37,11 @@ function showItemById($id){
       $row=pg_fetch_array($result);
       $title=$row[8];
       echo "<p>$title</p>";
-      echo '<div style="float:left"><p>Metadata</P>';
-      echo '<table border=1>';
-   
-   
-      foreach($row as $c => $value){
-         if(!is_numeric ($c)){
-            echo '<tr>';
-            echo '<td>'.$c.'</td><td>'.$value.'</td>';
-            echo '</tr>';
-         }
-      }
-   
-      echo '</table></div>';
+      if ($details){
+         echo '<div style="float:left"><p>Metadata</P>';
+         echo '<table border=1>';
       
-      
-      $sql="select * from mediainfo where m_id='$id'";
-      $result=pg_query($link,$sql);
-      echo '<div style="float:left"><p>Media Infomation</P>';
-      echo '<table border=1>';
-      while ($row = pg_fetch_array($result)) {
+         
          foreach($row as $c => $value){
             if(!is_numeric ($c)){
                echo '<tr>';
@@ -62,15 +49,33 @@ function showItemById($id){
                echo '</tr>';
             }
          }
+      
+         echo '</table></div>';
+         
+         
+         $sql="select * from mediainfo where m_id='$id'";
+         $result=pg_query($link,$sql);
+         echo '<div style="float:left"><p>Media Infomation</P>';
+         echo '<table border=1>';
+         while ($row = pg_fetch_array($result)) {
+            foreach($row as $c => $value){
+               if(!is_numeric ($c)){
+                  echo '<tr>';
+                  echo '<td>'.$c.'</td><td>'.$value.'</td>';
+                  echo '</tr>';
+               }
+            }
+         }
+         echo '</table></div>';
       }
-      echo '</table></div>';
    }
 }
 function showItemByProfile($v){
+   global $link;
    $ifNeedAnd=false;
-   $sql='select * from metadata where';
+   $sql='select title,id from metadata where';
    $prompt='<br/>Output:<br/>';
-   if(isset($v['title'])){
+   if(isset($v['title']) and $v['title']!=''){
       $title=$v['title'];
       $sql=$sql." title='$title'";
       $ifNeedAnd=true;
@@ -112,13 +117,27 @@ function showItemByProfile($v){
       $sql=$sql." formate='$format'";
       $prompt=$prompt."Format:$format<br/>";
    }
-   echo $sql;
    echo $prompt;
-   
+   echo $sql;
+   $result=pg_query($link,$sql);
+   if(!$result){
+      echo 'Please check your inputs.';
+   }
+   else{
+      if(pg_num_rows($result)===0){
+         echo '<p>No matches.</p>';
+      }else
+      {
+         echo "<p>$prompt</p>";
+         while ($row = pg_fetch_row($result)) {
+            echo "<p>$row[0]</p>";
+            showImage($row[1]);
+         }
+      }
+   }
 }
-
 #same creator
-#same formate
+#same formater
 #close creationdate
 function showRelatedItems($id){
    global $link;
@@ -141,11 +160,12 @@ function showRelatedItems($id){
          echo '<p>This item is too special. No similiar ones.</p>';
       }else{
          echo '<p>Find ones created by the same creator and in the same week. And the same format.</p>';
-         echo '<table>';
          while ($row = pg_fetch_row($result)) {
-            echo "<tr><td>$row[0]<td><td>$row[1]<td></tr>";
+            echo '<p>';
+            echo $row[0].'<br/>'.$row[1];
+            showImage($row[0]);
+            echo '</p>';
          }
-         echo '</table>';
       }
    }
    
@@ -168,13 +188,63 @@ function getValidData($y,$m,$d){
 }
 
 function showImage($id){
+   global $link;
    $sql="select title,mongo_id,formate from metadata where id='$id'";
    $result=pg_query($link,$sql);
    $row = pg_fetch_row($result);
+   $title=$row[0];
+   $mongo_id=$row[1];
+   $formate=$row[2];
+   $connection = new Mongo('localhost:27017');
+   $images = $connection->media->getGridFS('images');
+   $image = $images->findOne($title);
+   $imagePath=SITE_ROOT."/resource/$title.$formate";
+   $image->write($imagePath);
+   $imageSrc=SITE_URL."/resource/$title.$formate";
+   echo "<img src='$imageSrc' width='300' height='300'/>";
    
-   $m = new MongoClient();
-   $db = $m->comedy;
 }
+
+function showFTS($text){
+   global $link;
+   $newText=trim($text);
+   $newText=preg_replace('!\s+!', ' ', $newText);
+   $pieces=explode(" ",$newText);
+   $newText="";
+   foreach($pieces as $piece){
+      if(strlen($newText)===0){
+         $newText=$piece;
+      }else{
+         $newText=$newText." & ".$piece;
+      }
+   }
+   $sql="SELECT id,title ".
+         "FROM metadata ".
+         "WHERE to_tsvector(description ||' '||".
+         " title||' '||creator||".
+         "' '||identifier||' '||formate||' '||type|| ".
+         "' '||source||' '||language||' '||creationdate)".
+         " @@ to_tsquery('english', '$newText')".
+         " order by creationdate DESC";
+   $result=pg_query($link,$sql);
+   
+   if(!$result){
+      echo '<p>Error.</p>';
+   }
+   else{
+      if(pg_num_rows($result)===0){
+         echo '<p>No matches</p>';
+      }else{
+         while ($row = pg_fetch_row($result)) {
+            echo '<p>';
+            echo $row[0].'<br/>'.$row[1];
+            showImage($row[0]);
+            echo '</p>';
+         }
+      }
+   }
+}
+
 
 function isValid($v){
    if(isset($v) and $v!=0)

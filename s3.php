@@ -8,7 +8,7 @@ include_once('helper.php');
 
 if(isset($_GET) and count($_GET)!=0){
    $id=$_GET['id'];
-   showItemById($id);
+   showItemById($id,false);
    showRelatedItems($id);
 }
 else{

@@ -9,7 +9,9 @@ ID: <input type="text" name="ID"><br/>
 <?php
 include_once('helper.php');
 if (isset($_GET['ID'])){
-   showItemById($ID);
+   $ID=$_GET['ID'];
+   if($ID)
+      showItemById($ID);
 }
 ?>
 </body>
